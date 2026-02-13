@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -117,6 +116,7 @@
         .message {
             margin-bottom: 15px;
             animation: slideIn 0.3s ease;
+            clear: both;
         }
 
         @keyframes slideIn {
@@ -133,6 +133,7 @@
         .message .sender {
             font-weight: bold;
             margin-bottom: 5px;
+            font-size: 12px;
             color: #667eea;
         }
 
@@ -146,19 +147,30 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
 
-        .message.own .sender {
+        .message.left {
+            text-align: left;
+        }
+
+        .message.left .text {
+            background: white;
+            color: #333;
+        }
+
+        .message.right {
             text-align: right;
+        }
+
+        .message.right .sender {
             color: #764ba2;
         }
 
-        .message.own .text {
+        .message.right .text {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            float: right;
         }
 
-        .message.own {
-            text-align: right;
+        .message.no-sender .sender {
+            display: none;
         }
 
         .input-area {
@@ -188,7 +200,7 @@
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
 
         .profile-link {
@@ -215,6 +227,8 @@
         .friends-list {
             padding: 20px;
             background: #f5f5f5;
+            flex: 1;
+            overflow-y: auto;
         }
 
         .friend-item {
@@ -286,9 +300,18 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 100%;
+            flex: 1;
             color: #999;
             font-size: 18px;
+            background: #f5f5f5;
+        }
+
+        .chat-header {
+            background: white;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            font-weight: bold;
+            color: #667eea;
         }
     </style>
 </head>
@@ -335,6 +358,7 @@
                     Select a friend to start chatting
                 </div>
                 <div id="chatContainer" class="hidden" style="display: flex; flex-direction: column; flex: 1;">
+                    <div class="chat-header" id="chatHeader"></div>
                     <div class="messages" id="messages"></div>
                     <div class="input-area">
                         <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendMessage()">
@@ -346,12 +370,14 @@
     </div>
 
     <script type="module">
-        // Simple in-memory storage (works without any backend)
-        // For persistence, we'll use localStorage
-        
         let currentUsername = '';
         let currentChatFriend = '';
         let friends = [];
+
+        // Generate unique chat room ID for both users
+        function getChatRoomId(user1, user2) {
+            return [user1, user2].sort().join('___');
+        }
 
         // Check if user already has a profile from URL
         window.addEventListener('load', () => {
@@ -476,12 +502,15 @@
             
             document.getElementById('noSelection').classList.add('hidden');
             document.getElementById('chatContainer').classList.remove('hidden');
+            document.getElementById('chatHeader').textContent = 'Chat with ' + friendUsername;
             
             loadMessages();
             
             // Auto-scroll to bottom
             const messagesDiv = document.getElementById('messages');
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            setTimeout(() => {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }, 100);
         };
 
         window.sendMessage = function() {
@@ -497,40 +526,56 @@
                 timestamp: Date.now()
             };
             
-            // Save message to localStorage
+            // Save message to shared chat room
             saveMessage(message);
             
             messageInput.value = '';
             loadMessages();
+            
+            // Auto-scroll to bottom
+            const messagesDiv = document.getElementById('messages');
+            setTimeout(() => {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }, 50);
         };
 
         function saveMessage(message) {
-            const chatKey = getChatKey(message.from, message.to);
-            let messages = JSON.parse(localStorage.getItem(chatKey) || '[]');
+            const chatRoomId = getChatRoomId(message.from, message.to);
+            let messages = JSON.parse(localStorage.getItem('chat_' + chatRoomId) || '[]');
             messages.push(message);
-            localStorage.setItem(chatKey, JSON.stringify(messages));
-        }
-
-        function getChatKey(user1, user2) {
-            // Create a consistent key for both users
-            return [user1, user2].sort().join('_');
+            localStorage.setItem('chat_' + chatRoomId, JSON.stringify(messages));
         }
 
         function loadMessages() {
-            const chatKey = getChatKey(currentUsername, currentChatFriend);
-            const messages = JSON.parse(localStorage.getItem(chatKey) || '[]');
+            if (!currentChatFriend) return;
+            
+            const chatRoomId = getChatRoomId(currentUsername, currentChatFriend);
+            const messages = JSON.parse(localStorage.getItem('chat_' + chatRoomId) || '[]');
             
             const messagesDiv = document.getElementById('messages');
             messagesDiv.innerHTML = '';
+            
+            let lastSender = null;
             
             messages.forEach(msg => {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message';
                 
                 const isOwn = msg.from === currentUsername;
+                
+                // Position message left or right
                 if (isOwn) {
-                    messageDiv.classList.add('own');
+                    messageDiv.classList.add('right');
+                } else {
+                    messageDiv.classList.add('left');
                 }
+                
+                // Only show sender name if different from last message
+                const showSender = lastSender !== msg.from;
+                if (!showSender) {
+                    messageDiv.classList.add('no-sender');
+                }
+                lastSender = msg.from;
                 
                 const senderDiv = document.createElement('div');
                 senderDiv.className = 'sender';
@@ -554,7 +599,15 @@
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
-            event.target.classList.add('active');
+            
+            // Find which button was clicked
+            const buttons = document.querySelectorAll('.tab-btn');
+            buttons.forEach(btn => {
+                if ((tabName === 'friends' && btn.textContent === 'Friends') ||
+                    (tabName === 'chat' && btn.textContent === 'Chat')) {
+                    btn.classList.add('active');
+                }
+            });
             
             // Show/hide tabs
             if (tabName === 'friends') {
@@ -568,9 +621,12 @@
 
         // Refresh messages periodically (simulates real-time)
         setInterval(() => {
-            if (currentChatFriend && document.getElementById('chatContainer').classList.contains('hidden') === false) {
+            if (currentChatFriend && !document.getElementById('chatContainer').classList.contains('hidden')) {
                 const messagesDiv = document.getElementById('messages');
-                const wasAtBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop === messagesDiv.clientHeight;
+                const scrollPos = messagesDiv.scrollTop;
+                const scrollHeight = messagesDiv.scrollHeight;
+                const clientHeight = messagesDiv.clientHeight;
+                const wasAtBottom = scrollHeight - scrollPos - clientHeight < 50;
                 
                 loadMessages();
                 
@@ -578,7 +634,7 @@
                     messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 }
             }
-        }, 2000);
+        }, 1000);
     </script>
 </body>
 </html>
